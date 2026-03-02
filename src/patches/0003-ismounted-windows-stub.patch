@@ -1,0 +1,50 @@
+Stub out ismounted.c on Windows.
+
+The Linux implementation scans /proc/mounts and uses statfs.  Neither
+exists on Windows.  For the purposes of this port we return "not
+mounted" (EXT2_MF_MOUNTED is never set), which is safe for read-only
+mounts and acceptable for read-write mounts where the operator knows
+what they are doing.
+
+--- a/lib/ext2fs/ismounted.c
++++ b/lib/ext2fs/ismounted.c
+@@ -1,6 +1,32 @@
+ /*
+  * ismounted.c --- Check to see if the filesystem is mounted
+  */
++#ifdef _WIN32
++/*
++ * Windows stub: we cannot query the kernel mount table, so we always
++ * report the device as unmounted.  This is safe for read-only access
++ * and acceptable for read-write access on image files.
++ */
++#include "config.h"
++#include "windows_compat.h"
++#include "ext2fs/ext2fs.h"
++
++errcode_t ext2fs_check_if_mounted(const char *file, int *mount_flags)
++{
++	(void)file;
++	*mount_flags = 0;
++	return 0;
++}
++
++errcode_t ext2fs_check_mount_point(const char *device, int *mount_flags,
++                                    char *mtpt, int mtlen)
++{
++	(void)device; (void)mtpt; (void)mtlen;
++	*mount_flags = 0;
++	return 0;
++}
++
++#else /* !_WIN32 — original POSIX implementation follows */
++
+ #include "config.h"
+ #include <stdio.h>
+ #include <unistd.h>
+@@ -8,3 +34,5 @@
+  * (rest of file unchanged — the #else closes at end-of-file)
+  */
+ /* NOTE: apply_patches.sh appends #endif at the end of this file */
++
++#endif /* _WIN32 */

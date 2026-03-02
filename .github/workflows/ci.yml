@@ -1,0 +1,165 @@
+name: Build ext4fs
+
+on:
+  push:
+    branches:
+      - main
+      - 'copilot/**'
+  pull_request:
+    branches:
+      - main
+
+env:
+  WINFSP_VERSION: "2.0.23075"
+  WINFSP_TAG: "v2.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1 — generate-headers
+#
+# Run on Ubuntu so we can use the normal autotools ./configure to produce the
+# generated headers that e2fsprogs needs:
+#   lib/ext2fs/ext2_types.h   lib/ext2fs/ext2_err.h
+#   lib/et/com_err.h          config.h
+#
+# These files are uploaded as an artifact and consumed by the Windows job.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  generate-headers:
+    name: Generate e2fsprogs headers (Linux)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config \
+            libfuse-dev
+
+      - name: Clone e2fsprogs
+        run: |
+          git clone --depth 1 \
+            https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git \
+            e2fsprogs
+
+      - name: Configure e2fsprogs (generates headers)
+        working-directory: e2fsprogs
+        run: |
+          ./configure --enable-elf-shlibs
+
+      - name: Collect generated headers
+        run: |
+          mkdir -p generated-headers/lib/ext2fs generated-headers/lib/et
+          cp e2fsprogs/lib/ext2fs/ext2_types.h generated-headers/lib/ext2fs/
+          cp e2fsprogs/lib/ext2fs/ext2_err.h    generated-headers/lib/ext2fs/
+          cp e2fsprogs/lib/et/com_err.h         generated-headers/lib/et/
+          cp e2fsprogs/config.h                 generated-headers/
+          cp e2fsprogs/MCONFIG                  generated-headers/ || true
+
+      - name: Upload generated headers
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2fsprogs-generated-headers
+          path: generated-headers/
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 2 — build-windows
+#
+# Uses MSYS2/MinGW-w64 on a Windows runner to cross-compile ext4fs.exe.
+# WinFsp is installed via its MSI so the SDK headers and import library
+# are available at the standard location.
+# ─────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build ext4fs.exe (Windows / MinGW-w64)
+    runs-on: windows-latest
+    needs: generate-headers
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 / MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            python3
+            git
+            patch
+
+      - name: Download generated headers
+        uses: actions/download-artifact@v4
+        with:
+          name: e2fsprogs-generated-headers
+          path: generated-headers
+
+      - name: Clone e2fsprogs
+        run: |
+          git clone --depth 1 \
+            https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git \
+            e2fsprogs
+
+      - name: Install generated headers into e2fsprogs tree
+        run: |
+          cp -v generated-headers/lib/ext2fs/ext2_types.h e2fsprogs/lib/ext2fs/
+          cp -v generated-headers/lib/ext2fs/ext2_err.h   e2fsprogs/lib/ext2fs/
+          cp -v generated-headers/lib/et/com_err.h        e2fsprogs/lib/et/
+          cp -v generated-headers/config.h                e2fsprogs/
+
+      - name: Copy windows_compat.h into e2fsprogs source tree
+        run: |
+          # windows_compat.h is included as "windows_compat.h" from lib/ext2fs/
+          # and misc/ directories, so make it available in both places.
+          cp -v src/windows_compat.h e2fsprogs/lib/ext2fs/
+          cp -v src/windows_compat.h e2fsprogs/misc/
+
+      - name: Apply Windows compatibility patches
+        run: |
+          python3 scripts/apply_patches.py e2fsprogs
+
+      - name: Install WinFsp
+        shell: powershell
+        run: |
+          $msiUrl = "https://github.com/winfsp/winfsp/releases/download/$env:WINFSP_TAG/winfsp-$env:WINFSP_VERSION.msi"
+          $msiPath = "$env:TEMP\winfsp.msi"
+          Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
+          Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart" -Wait
+          Write-Host "WinFsp installed."
+          if (Test-Path "C:\Program Files (x86)\WinFsp\inc\fuse\fuse.h") {
+            Write-Host "WinFsp SDK headers: OK"
+          } else {
+            Write-Error "WinFsp SDK headers not found!"
+          }
+
+      - name: Configure with CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            "-DE2FSPROGS_SOURCE_DIR=$(pwd)/e2fsprogs" \
+            "-DWINFSP_DIR=C:/Program Files (x86)/WinFsp"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Upload ext4fs.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ext4fs-windows-x64
+          path: build/ext4fs.exe
+          retention-days: 30

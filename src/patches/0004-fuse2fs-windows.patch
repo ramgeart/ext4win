@@ -1,0 +1,65 @@
+Add Windows compatibility guards to misc/fuse2fs.c.
+
+fuse2fs.c uses several POSIX headers and functions that do not exist on
+Windows: sys/ioctl.h, sys/mount.h, sys/statvfs.h, mntent.h, getpwuid(),
+getgrgid(), getmntent(), syslog().  This patch wraps them in #ifndef
+_WIN32 guards and provides Windows-friendly stubs.
+
+--- a/misc/fuse2fs.c
++++ b/misc/fuse2fs.c
+@@ -1,16 +1,36 @@
+ /*
+  * fuse2fs.c — FUSE driver for ext2/3/4 filesystems
+  */
++#ifdef _WIN32
++/* Pull in POSIX shims before anything else. */
++#include "windows_compat.h"
++#endif
++
+ #include "config.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#ifndef _WIN32
+ #include <unistd.h>
++#endif
+ #include <fcntl.h>
+ #include <errno.h>
++#ifndef _WIN32
+ #include <sys/ioctl.h>
++#endif
++#ifndef _WIN32
+ #include <sys/mount.h>
++#endif
++#ifndef _WIN32
+ #include <sys/statvfs.h>
++#endif
++#ifndef _WIN32
+ #include <sys/wait.h>
++#endif
++#ifndef _WIN32
+ #include <pwd.h>
+ #include <grp.h>
++#endif
++#ifdef _WIN32
++/* uid/gid stubs: all files appear owned by root.
++ * Guard against re-definition by MinGW's pwd.h/grp.h. */
++#ifndef _PWD_H
++#ifndef _MINGW_PWD_H
++struct passwd { char *pw_name; unsigned int pw_uid; unsigned int pw_gid; };
++static inline struct passwd *getpwuid(unsigned int u) { (void)u; return NULL; }
++#endif
++#endif
++#ifndef _GRP_H
++#ifndef _MINGW_GRP_H
++struct group  { char *gr_name; unsigned int gr_gid; };
++static inline struct group  *getgrgid(unsigned int g) { (void)g; return NULL; }
++#endif
++#endif
++#ifndef LOG_ERR
++#define LOG_ERR 3
++#endif
++#define syslog(pri, ...)    fprintf(stderr, __VA_ARGS__)
++#define openlog(id, o, f)   do {} while (0)
++#define closelog()          do {} while (0)
++#endif /* _WIN32 */
