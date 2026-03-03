@@ -144,6 +144,23 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/winfsp/winfsp winfsp-sdk
 
+      - name: Debug - Find WinFsp files
+        run: |
+          echo "=== Searching for fuse.h ==="
+          find winfsp-sdk -name "fuse.h" -type f || echo "No fuse.h found"
+          echo ""
+          echo "=== Searching for *.lib files ==="
+          find winfsp-sdk -name "*.lib" -type f || echo "No .lib files found"
+          echo ""
+          echo "=== Directory structure of winfsp-sdk ==="
+          ls -la winfsp-sdk/ || true
+          echo ""
+          echo "=== Checking inc/ directory ==="
+          ls -la winfsp-sdk/inc/ || echo "No inc/ directory"
+          echo ""
+          echo "=== Checking opt/ directory ==="
+          ls -la winfsp-sdk/opt/ || echo "No opt/ directory"
+
       - name: Set WinFsp paths for CMake
         run: |
           echo "WINFSP_INC_DIR=$(pwd)/winfsp-sdk/inc/fuse" >> $GITHUB_ENV
