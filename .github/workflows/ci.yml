@@ -85,6 +85,7 @@ jobs:
     name: Build ext4fs.exe (Windows / MinGW-w64)
     runs-on: windows-latest
     needs: generate-headers
+    environment: ci-windows
     permissions:
       contents: read
 
@@ -155,12 +156,23 @@ jobs:
 
       - name: Generate WinFsp import library from DLL
         run: |
-          # The MSI installs winfsp-x64.dll to System32
-          dllPath="/c/Windows/System32/winfsp-x64.dll"
-          if [ ! -f "$dllPath" ]; then
-            echo "Error: winfsp-x64.dll not found at $dllPath"
+          # The MSI installs winfsp-x64.dll; check both possible locations
+          dllPath=""
+          if [ -f "/c/Windows/System32/winfsp-x64.dll" ]; then
+            dllPath="/c/Windows/System32/winfsp-x64.dll"
+          elif [ -f "/c/Program Files (x86)/WinFsp/bin/winfsp-x64.dll" ]; then
+            dllPath="/c/Program Files (x86)/WinFsp/bin/winfsp-x64.dll"
+          elif [ -f "/c/Program Files/WinFsp/bin/winfsp-x64.dll" ]; then
+            dllPath="/c/Program Files/WinFsp/bin/winfsp-x64.dll"
+          else
+            echo "Error: winfsp-x64.dll not found in expected locations:"
+            echo "  - C:\Windows\System32\winfsp-x64.dll"
+            echo "  - C:\Program Files (x86)\WinFsp\bin\winfsp-x64.dll"
+            echo "  - C:\Program Files\WinFsp\bin\winfsp-x64.dll"
             exit 1
           fi
+
+          echo "Found WinFsp DLL at: $dllPath"
 
           # Create a directory for the generated import library
           mkdir -p winfsp-lib
