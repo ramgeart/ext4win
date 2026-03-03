@@ -1,0 +1,206 @@
+name: Build ext4fs
+
+on:
+  push:
+    branches:
+      - main
+      - 'copilot/**'
+  pull_request:
+    branches:
+      - main
+
+env:
+  WINFSP_VERSION: "2.1.25156"
+  WINFSP_TAG: "v2.1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1 — generate-headers
+#
+# Run on Ubuntu so we can use the normal autotools ./configure to produce the
+# generated headers that e2fsprogs needs:
+#   lib/ext2fs/ext2_types.h   lib/ext2fs/ext2_err.h
+#   lib/et/com_err.h          config.h
+#
+# These files are uploaded as an artifact and consumed by the Windows job.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  generate-headers:
+    name: Generate e2fsprogs headers (Linux)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config \
+            libfuse-dev
+
+      - name: Clone e2fsprogs
+        run: |
+          git clone --depth 1 \
+            https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git \
+            e2fsprogs
+
+      - name: Configure e2fsprogs (generates headers)
+        working-directory: e2fsprogs
+        run: |
+          ./configure --enable-elf-shlibs
+
+      - name: Generate ext2_err.h
+        working-directory: e2fsprogs
+        run: |
+          make -C lib/et compile_et
+          make -C lib/ext2fs ext2_err.h
+
+      - name: Collect generated headers
+        run: |
+          mkdir -p generated-headers/lib/ext2fs generated-headers/lib/et
+          cp e2fsprogs/lib/ext2fs/ext2_types.h generated-headers/lib/ext2fs/
+          cp e2fsprogs/lib/ext2fs/ext2_err.h    generated-headers/lib/ext2fs/
+          cp e2fsprogs/lib/et/com_err.h         generated-headers/lib/et/
+          cp e2fsprogs/lib/config.h             generated-headers/lib/
+          cp e2fsprogs/MCONFIG                  generated-headers/ || true
+
+      - name: Upload generated headers
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2fsprogs-generated-headers
+          path: generated-headers/
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 2 — build-windows
+#
+# Uses MSYS2/MinGW-w64 on a Windows runner to cross-compile ext4fs.exe.
+# WinFsp is installed via its MSI so the SDK headers and import library
+# are available at the standard location.
+# ─────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build ext4fs.exe (Windows / MinGW-w64)
+    runs-on: windows-latest
+    needs: generate-headers
+    environment: ci-windows
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 / MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            python3
+            git
+            patch
+
+      - name: Download generated headers
+        uses: actions/download-artifact@v4
+        with:
+          name: e2fsprogs-generated-headers
+          path: generated-headers
+
+      - name: Clone e2fsprogs
+        run: |
+          git clone --depth 1 \
+            https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git \
+            e2fsprogs
+
+      - name: Install generated headers into e2fsprogs tree
+        run: |
+          cp -v generated-headers/lib/ext2fs/ext2_types.h e2fsprogs/lib/ext2fs/
+          cp -v generated-headers/lib/ext2fs/ext2_err.h   e2fsprogs/lib/ext2fs/
+          cp -v generated-headers/lib/et/com_err.h        e2fsprogs/lib/et/
+          cp -v generated-headers/lib/config.h            e2fsprogs/lib/
+
+      - name: Copy windows_compat.h into e2fsprogs source tree
+        run: |
+          # windows_compat.h is included as "windows_compat.h" from lib/ext2fs/
+          # and misc/ directories, so make it available in both places.
+          cp -v src/windows_compat.h e2fsprogs/lib/ext2fs/
+          cp -v src/windows_compat.h e2fsprogs/misc/
+
+      - name: Apply Windows compatibility patches
+        run: |
+          python3 scripts/apply_patches.py e2fsprogs
+
+      - name: Clone WinFsp SDK for headers and library
+        run: |
+          git clone --depth 1 https://github.com/winfsp/winfsp winfsp-sdk
+
+      - name: Debug - Find WinFsp files
+        run: |
+          echo "=== Searching for fuse.h ==="
+          find winfsp-sdk -name "fuse.h" -type f || echo "No fuse.h found"
+          echo ""
+          echo "=== Searching for *.lib files ==="
+          find winfsp-sdk -name "*.lib" -type f || echo "No .lib files found"
+          echo ""
+          echo "=== Directory structure of winfsp-sdk ==="
+          ls -la winfsp-sdk/ || true
+          echo ""
+          echo "=== Checking inc/ directory ==="
+          ls -la winfsp-sdk/inc/ || echo "No inc/ directory"
+          echo ""
+          echo "=== Checking opt/ directory ==="
+          ls -la winfsp-sdk/opt/ || echo "No opt/ directory"
+
+      - name: Set WinFsp paths for CMake
+        run: |
+          echo "WINFSP_INC_DIR=$(pwd)/winfsp-sdk/inc/fuse" >> $GITHUB_ENV
+          echo "WINFSP_LIB_DIR=$(pwd)/winfsp-sdk/opt/fsext/lib" >> $GITHUB_ENV
+
+          if [ ! -f "$(pwd)/winfsp-sdk/inc/fuse/fuse.h" ]; then
+            echo "Error: fuse.h not found in cloned WinFsp repo"
+            exit 1
+          fi
+
+          if [ ! -f "$(pwd)/winfsp-sdk/opt/fsext/lib/winfsp-x64.lib" ]; then
+            echo "Error: winfsp-x64.lib not found in WinFsp repo"
+            exit 1
+          fi
+
+          echo "WinFsp headers: $(pwd)/winfsp-sdk/inc/fuse"
+          echo "WinFsp library: $(pwd)/winfsp-sdk/opt/fsext/lib"
+
+      - name: Configure with CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            "-DE2FSPROGS_SOURCE_DIR=$(pwd)/e2fsprogs" \
+            "-DWINFSP_INC_DIR=$WINFSP_INC_DIR" \
+            "-DWINFSP_LIB_DIR=$WINFSP_LIB_DIR"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Upload ext4fs.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ext4fs-windows-x64
+          path: build/ext4fs.exe
+          retention-days: 30
+
+      - name: Notify Telegram
+        if: always()
+        shell: bash
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d text="[${{ job.status }}] ext4win ${{ github.workflow }} — ${{ github.ref_name }}"

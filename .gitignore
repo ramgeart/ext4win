@@ -53,3 +53,21 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Build directories
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# CodeQL artefacts
+_codeql_detected_source_root
+
+# Local copies of third-party sources and generated headers
+generated-headers/
+e2fsprogs/
