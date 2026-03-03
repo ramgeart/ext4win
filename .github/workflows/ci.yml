@@ -145,7 +145,7 @@ jobs:
           $msiUrl = "https://github.com/winfsp/winfsp/releases/download/$env:WINFSP_TAG/winfsp-$env:WINFSP_VERSION.msi"
           $msiPath = "$env:TEMP\winfsp.msi"
           Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
-          Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart" -Wait
+          Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart ADDLOCAL=FileSys,Developer" -Wait
           Write-Host "WinFsp installed."
           $winfspDir = $null
           if (Test-Path "C:\Program Files (x86)\WinFsp\inc\fuse\fuse.h") {
