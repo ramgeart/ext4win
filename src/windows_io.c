@@ -151,10 +151,13 @@ static errcode_t raw_read(struct windows_private_data *data,
         errno = win32_error_to_errno(GetLastError());
         return EXT2_ET_SHORT_READ;
     }
-    LeaveCriticalSection(&data->io_lock);
 
-    if (bytes_read != byte_count)
+    if (bytes_read != byte_count) {
+        LeaveCriticalSection(&data->io_lock);
         return EXT2_ET_SHORT_READ;
+    }
+
+    LeaveCriticalSection(&data->io_lock);
 
     return 0;
 }
@@ -183,10 +186,13 @@ static errcode_t raw_write(struct windows_private_data *data,
         errno = win32_error_to_errno(GetLastError());
         return EXT2_ET_SHORT_WRITE;
     }
-    LeaveCriticalSection(&data->io_lock);
 
-    if (bytes_written != byte_count)
+    if (bytes_written != byte_count) {
+        LeaveCriticalSection(&data->io_lock);
         return EXT2_ET_SHORT_WRITE;
+    }
+
+    LeaveCriticalSection(&data->io_lock);
 
     return 0;
 }
