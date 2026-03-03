@@ -10,8 +10,8 @@ on:
       - main
 
 env:
-  WINFSP_VERSION: "2.0.23075"
-  WINFSP_TAG: "v2.0"
+  WINFSP_VERSION: "2.1.25156"
+  WINFSP_TAG: "v2.1"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Job 1 — generate-headers
@@ -139,33 +139,42 @@ jobs:
         run: |
           python3 scripts/apply_patches.py e2fsprogs
 
-      - name: Install WinFsp
+      - name: Clone WinFsp SDK for headers
+        run: |
+          git clone --depth 1 https://github.com/winfsp/winfsp winfsp-sdk
+
+      - name: Extract WinFsp import library from MSI
         shell: powershell
         run: |
           $msiUrl = "https://github.com/winfsp/winfsp/releases/download/$env:WINFSP_TAG/winfsp-$env:WINFSP_VERSION.msi"
           $msiPath = "$env:TEMP\winfsp.msi"
           Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
-          Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart ADDLOCAL=FileSys,Developer" -Wait
-          Write-Host "WinFsp installed."
-          $winfspDir = $null
-          if (Test-Path "C:\Program Files (x86)\WinFsp\inc\fuse\fuse.h") {
-            $winfspDir = "C:/Program Files (x86)/WinFsp"
-          } elseif (Test-Path "C:\Program Files\WinFsp\inc\fuse\fuse.h") {
-            $winfspDir = "C:/Program Files/WinFsp"
-          }
-          if ($winfspDir) {
-            "WINFSP_DIR=$winfspDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            Write-Host "WinFsp SDK headers: OK ($winfspDir)"
+          $extractDir = "C:\winfsp-extract"
+          Start-Process msiexec.exe -ArgumentList "/a `"$msiPath`" /qn TARGETDIR=`"$extractDir`"" -Wait
+          if (Test-Path "$extractDir\WinFsp\lib\winfsp-x64.lib") {
+            Write-Host "WinFsp import library extracted: OK"
+            "WINFSP_LIB_DIR=$extractDir/WinFsp/lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } else {
-            throw "WinFsp SDK headers not found!"
+            throw "WinFsp import library not found after extraction!"
           }
+
+      - name: Set WinFsp paths for CMake
+        run: |
+          echo "WINFSP_INC_DIR=$(pwd)/winfsp-sdk/inc/fuse" >> $GITHUB_ENV
+          if [ ! -f "$(pwd)/winfsp-sdk/inc/fuse/fuse.h" ]; then
+            echo "Error: fuse.h not found in cloned WinFsp repo"
+            exit 1
+          fi
+          echo "WinFsp headers: $(pwd)/winfsp-sdk/inc/fuse"
+          echo "WinFsp library: $WINFSP_LIB_DIR"
 
       - name: Configure with CMake
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             "-DE2FSPROGS_SOURCE_DIR=$(pwd)/e2fsprogs" \
-            "-DWINFSP_DIR=$WINFSP_DIR"
+            "-DWINFSP_INC_DIR=$WINFSP_INC_DIR" \
+            "-DWINFSP_LIB_DIR=$WINFSP_LIB_DIR"
 
       - name: Build
         run: cmake --build build --parallel

@@ -11,10 +11,13 @@ set(E2FSPROGS_SOURCE_DIR ""
     "Path to the e2fsprogs source tree (must already contain generated \
 headers: ext2_types.h, ext2_err.h, com_err.h, config.h).")
 
-set(WINFSP_DIR "C:/Program Files (x86)/WinFsp"
+set(WINFSP_INC_DIR ""
     CACHE PATH
-    "Path to the WinFsp installation (must have inc/fuse/fuse.h and \
-lib/winfsp-x64.lib).")
+    "Path to the WinFsp include directory (must contain fuse/fuse.h).")
+
+set(WINFSP_LIB_DIR ""
+    CACHE PATH
+    "Path to the WinFsp library directory (must contain winfsp-x64.lib).")
 
 # ── Validate paths ───────────────────────────────────────────────────────────
 
@@ -25,14 +28,17 @@ if(NOT E2FSPROGS_SOURCE_DIR OR NOT IS_DIRECTORY "${E2FSPROGS_SOURCE_DIR}")
         "then set -DE2FSPROGS_SOURCE_DIR=<path> when invoking cmake.")
 endif()
 
-set(WINFSP_INC "${WINFSP_DIR}/inc/fuse")
-set(WINFSP_LIB "${WINFSP_DIR}/lib/winfsp-x64.lib")
-
-if(NOT EXISTS "${WINFSP_INC}/fuse.h")
+if(NOT WINFSP_INC_DIR OR NOT EXISTS "${WINFSP_INC_DIR}/fuse.h")
     message(FATAL_ERROR
-        "WinFsp fuse.h not found at '${WINFSP_INC}/fuse.h'.\n"
-        "Install WinFsp with the 'Developer' feature selected,\n"
-        "or set -DWINFSP_DIR=<path> to the correct directory.")
+        "WINFSP_INC_DIR must point to WinFsp include directory with fuse.h.\n"
+        "Set -DWINFSP_INC_DIR=<path> when invoking cmake.")
+endif()
+
+set(WINFSP_LIB "${WINFSP_LIB_DIR}/winfsp-x64.lib")
+if(NOT WINFSP_LIB_DIR OR NOT EXISTS "${WINFSP_LIB}")
+    message(FATAL_ERROR
+        "WINFSP_LIB_DIR must point to directory containing winfsp-x64.lib.\n"
+        "Set -DWINFSP_LIB_DIR=<path> when invoking cmake.")
 endif()
 
 # ── Helper directories ───────────────────────────────────────────────────────
@@ -136,7 +142,7 @@ target_include_directories(ext2fs PUBLIC
     # Our Windows compatibility header
     "${SRC_DIR}"
     # WinFsp FUSE includes (mmp.c pulls in fuse.h indirectly on some builds)
-    "${WINFSP_INC}"
+    "${WINFSP_INC_DIR}"
 )
 
 if(MSVC)
@@ -159,7 +165,7 @@ target_include_directories(ext4fs PRIVATE
     "${E2FSPROGS_SOURCE_DIR}"
     "${E2FSPROGS_SOURCE_DIR}/lib"
     "${SRC_DIR}"
-    "${WINFSP_INC}"
+    "${WINFSP_INC_DIR}"
 )
 
 target_link_libraries(ext4fs PRIVATE
