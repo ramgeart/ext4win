@@ -139,11 +139,15 @@ target_include_directories(ext2fs PUBLIC
     "${WINFSP_INC}"
 )
 
-target_compile_options(ext2fs PRIVATE
-    -Wall
-    -Wno-unused-parameter
-    -Wno-sign-compare
-)
+if(MSVC)
+    target_compile_options(ext2fs PRIVATE /W4)
+else()
+    target_compile_options(ext2fs PRIVATE
+        -Wall
+        -Wno-unused-parameter
+        -Wno-sign-compare
+    )
+endif()
 
 # ── ext4fs.exe ───────────────────────────────────────────────────────────────
 
@@ -163,11 +167,15 @@ target_link_libraries(ext4fs PRIVATE
     "${WINFSP_LIB}"
 )
 
-target_compile_options(ext4fs PRIVATE
-    -Wall
-    -Wno-unused-parameter
-    -Wno-sign-compare
-)
+if(MSVC)
+    target_compile_options(ext4fs PRIVATE /W4)
+else()
+    target_compile_options(ext4fs PRIVATE
+        -Wall
+        -Wno-unused-parameter
+        -Wno-sign-compare
+    )
+endif()
 
 # ── Install ──────────────────────────────────────────────────────────────────
 

@@ -24,7 +24,11 @@ typedef SSIZE_T ssize_t;
 
 /* Symbolic-link test — ext4 has symlinks but Windows stat has no S_ISLNK */
 #ifndef S_ISLNK
-#  define S_ISLNK(m) 0
+#  ifdef S_IFLNK
+#    define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
+#  else
+#    define S_ISLNK(m) 0
+#  endif
 #endif
 
 /* O_NOFOLLOW — meaningful only on POSIX; ignored on Windows */

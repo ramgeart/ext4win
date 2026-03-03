@@ -38,6 +38,7 @@ struct windows_private_data {
     int         block_size;     /* current logical block size (bytes)       */
     int         is_block_device;/* non-zero when path is a \\.\xxx device   */
     LONGLONG    file_size;      /* total size in bytes (best-effort)        */
+    CRITICAL_SECTION io_lock;   /* serialize SetFilePointerEx + Read/Write   */
 };
 
 /* ── Forward declarations ───────────────────────────────────────────────── */
@@ -137,16 +138,20 @@ static errcode_t raw_read(struct windows_private_data *data,
     LARGE_INTEGER li;
     DWORD bytes_read;
 
+    EnterCriticalSection(&data->io_lock);
     li.QuadPart = byte_offset;
     if (!SetFilePointerEx(data->hFile, li, NULL, FILE_BEGIN)) {
+        LeaveCriticalSection(&data->io_lock);
         errno = win32_error_to_errno(GetLastError());
         return EXT2_ET_LLSEEK_FAILED;
     }
 
     if (!ReadFile(data->hFile, buf, byte_count, &bytes_read, NULL)) {
+        LeaveCriticalSection(&data->io_lock);
         errno = win32_error_to_errno(GetLastError());
         return EXT2_ET_SHORT_READ;
     }
+    LeaveCriticalSection(&data->io_lock);
 
     if (bytes_read != byte_count)
         return EXT2_ET_SHORT_READ;
@@ -165,16 +170,20 @@ static errcode_t raw_write(struct windows_private_data *data,
     LARGE_INTEGER li;
     DWORD bytes_written;
 
+    EnterCriticalSection(&data->io_lock);
     li.QuadPart = byte_offset;
     if (!SetFilePointerEx(data->hFile, li, NULL, FILE_BEGIN)) {
+        LeaveCriticalSection(&data->io_lock);
         errno = win32_error_to_errno(GetLastError());
         return EXT2_ET_LLSEEK_FAILED;
     }
 
     if (!WriteFile(data->hFile, buf, byte_count, &bytes_written, NULL)) {
+        LeaveCriticalSection(&data->io_lock);
         errno = win32_error_to_errno(GetLastError());
         return EXT2_ET_SHORT_WRITE;
     }
+    LeaveCriticalSection(&data->io_lock);
 
     if (bytes_written != byte_count)
         return EXT2_ET_SHORT_WRITE;
@@ -206,6 +215,7 @@ static errcode_t windows_open(const char *name, int flags,
     io->manager    = windows_io_manager;
     io->block_size = 1024;
     io->refcount   = 1;
+    io->flags      = flags;
 
     io->name = strdup(name);
     if (!io->name) {
@@ -233,13 +243,10 @@ static errcode_t windows_open(const char *name, int flags,
     /* Allow concurrent readers; deny concurrent writers. */
     dwShare = FILE_SHARE_READ;
 
-    /*
-     * Block devices: FILE_FLAG_NO_BUFFERING enables direct sector-level
-     * access without the page cache.  libext2fs already works in
-     * block-aligned chunks so alignment is satisfied.
-     * Image files: normal buffered I/O.
-     */
-    dwFlags = is_blkdev ? FILE_FLAG_NO_BUFFERING : FILE_ATTRIBUTE_NORMAL;
+    /* Use normal buffered I/O for both block devices and image files.
+     * FILE_FLAG_NO_BUFFERING requires strict alignment guarantees that
+     * libext2fs buffers/block sizes do not always satisfy on Windows. */
+    dwFlags = FILE_ATTRIBUTE_NORMAL;
 
     hFile = CreateFileA(name,
                         dwAccess,
@@ -257,6 +264,7 @@ static errcode_t windows_open(const char *name, int flags,
 
     data->hFile = hFile;
     data->flags = flags;
+    InitializeCriticalSection(&data->io_lock);
 
     /* Best-effort size determination. */
     if (is_blkdev) {
@@ -299,6 +307,7 @@ static errcode_t windows_close(io_channel channel)
     if (data->hFile != INVALID_HANDLE_VALUE)
         CloseHandle(data->hFile);
 
+    DeleteCriticalSection(&data->io_lock);
     free(data);
     free(channel->name);
     free(channel);

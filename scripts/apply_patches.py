@@ -47,7 +47,7 @@ def patch_getsectsize(src_dir):
     path = os.path.join(src_dir, 'lib', 'ext2fs', 'getsectsize.c')
     content = read_file(path)
 
-    if '_WIN32' in content:
+    if 'win_get_sectsize(' in content:
         print(f'  {path}: already patched, skipping')
         return
 
@@ -122,7 +122,7 @@ def patch_ismounted(src_dir):
     path = os.path.join(src_dir, 'lib', 'ext2fs', 'ismounted.c')
     content = read_file(path)
 
-    if '_WIN32' in content:
+    if 'Windows stub for ismounted.c' in content:
         print(f'  {path}: already patched, skipping')
         return
 

@@ -147,10 +147,17 @@ jobs:
           Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
           Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart" -Wait
           Write-Host "WinFsp installed."
+          $winfspDir = $null
           if (Test-Path "C:\Program Files (x86)\WinFsp\inc\fuse\fuse.h") {
-            Write-Host "WinFsp SDK headers: OK"
+            $winfspDir = "C:/Program Files (x86)/WinFsp"
+          } elseif (Test-Path "C:\Program Files\WinFsp\inc\fuse\fuse.h") {
+            $winfspDir = "C:/Program Files/WinFsp"
+          }
+          if ($winfspDir) {
+            "WINFSP_DIR=$winfspDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "WinFsp SDK headers: OK ($winfspDir)"
           } else {
-            Write-Error "WinFsp SDK headers not found!"
+            throw "WinFsp SDK headers not found!"
           }
 
       - name: Configure with CMake
@@ -158,7 +165,7 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             "-DE2FSPROGS_SOURCE_DIR=$(pwd)/e2fsprogs" \
-            "-DWINFSP_DIR=C:/Program Files (x86)/WinFsp"
+            "-DWINFSP_DIR=$WINFSP_DIR"
 
       - name: Build
         run: cmake --build build --parallel
