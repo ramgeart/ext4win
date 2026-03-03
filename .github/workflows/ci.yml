@@ -140,52 +140,27 @@ jobs:
         run: |
           python3 scripts/apply_patches.py e2fsprogs
 
-      - name: Clone WinFsp SDK for headers
+      - name: Clone WinFsp SDK for headers and library
         run: |
           git clone --depth 1 https://github.com/winfsp/winfsp winfsp-sdk
-
-      - name: Generate WinFsp import library from .def file
-        run: |
-          # The WinFsp repo contains a .def file we can use directly
-          defFile="winfsp-sdk/src/dll/winfsp.def"
-          if [ ! -f "$defFile" ]; then
-            echo "Error: winfsp.def not found at $defFile"
-            exit 1
-          fi
-
-          echo "Using WinFsp .def file: $defFile"
-
-          # Create a directory for the generated import library
-          mkdir -p winfsp-lib
-
-          # Generate import library from .def using dlltool
-          dlltool -d "$defFile" -l winfsp-lib/winfsp-x64.lib -D winfsp-x64.dll
-
-          if [ -f "winfsp-lib/winfsp-x64.lib" ]; then
-            echo "Import library generated successfully"
-            ls -lh winfsp-lib/winfsp-x64.lib
-          else
-            echo "Error: Failed to generate winfsp-x64.lib"
-            exit 1
-          fi
 
       - name: Set WinFsp paths for CMake
         run: |
           echo "WINFSP_INC_DIR=$(pwd)/winfsp-sdk/inc/fuse" >> $GITHUB_ENV
-          echo "WINFSP_LIB_DIR=$(pwd)/winfsp-lib" >> $GITHUB_ENV
+          echo "WINFSP_LIB_DIR=$(pwd)/winfsp-sdk/opt/fsext/lib" >> $GITHUB_ENV
 
           if [ ! -f "$(pwd)/winfsp-sdk/inc/fuse/fuse.h" ]; then
             echo "Error: fuse.h not found in cloned WinFsp repo"
             exit 1
           fi
 
-          if [ ! -f "$(pwd)/winfsp-lib/winfsp-x64.lib" ]; then
-            echo "Error: winfsp-x64.lib not found"
+          if [ ! -f "$(pwd)/winfsp-sdk/opt/fsext/lib/winfsp-x64.lib" ]; then
+            echo "Error: winfsp-x64.lib not found in WinFsp repo"
             exit 1
           fi
 
           echo "WinFsp headers: $(pwd)/winfsp-sdk/inc/fuse"
-          echo "WinFsp library: $(pwd)/winfsp-lib"
+          echo "WinFsp library: $(pwd)/winfsp-sdk/opt/fsext/lib"
 
       - name: Configure with CMake
         run: |
