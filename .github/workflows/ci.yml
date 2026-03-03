@@ -52,13 +52,19 @@ jobs:
         run: |
           ./configure --enable-elf-shlibs
 
+      - name: Generate ext2_err.h
+        working-directory: e2fsprogs
+        run: |
+          make -C lib/et compile_et
+          make -C lib/ext2fs ext2_err.h
+
       - name: Collect generated headers
         run: |
           mkdir -p generated-headers/lib/ext2fs generated-headers/lib/et
           cp e2fsprogs/lib/ext2fs/ext2_types.h generated-headers/lib/ext2fs/
           cp e2fsprogs/lib/ext2fs/ext2_err.h    generated-headers/lib/ext2fs/
           cp e2fsprogs/lib/et/com_err.h         generated-headers/lib/et/
-          cp e2fsprogs/config.h                 generated-headers/
+          cp e2fsprogs/lib/config.h             generated-headers/lib/
           cp e2fsprogs/MCONFIG                  generated-headers/ || true
 
       - name: Upload generated headers
@@ -120,7 +126,7 @@ jobs:
           cp -v generated-headers/lib/ext2fs/ext2_types.h e2fsprogs/lib/ext2fs/
           cp -v generated-headers/lib/ext2fs/ext2_err.h   e2fsprogs/lib/ext2fs/
           cp -v generated-headers/lib/et/com_err.h        e2fsprogs/lib/et/
-          cp -v generated-headers/config.h                e2fsprogs/
+          cp -v generated-headers/lib/config.h            e2fsprogs/lib/
 
       - name: Copy windows_compat.h into e2fsprogs source tree
         run: |
