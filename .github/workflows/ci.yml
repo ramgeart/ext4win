@@ -143,30 +143,60 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/winfsp/winfsp winfsp-sdk
 
-      - name: Extract WinFsp import library from MSI
+      - name: Install WinFsp (for DLL) and generate import library
         shell: powershell
         run: |
+          # Download and install WinFsp MSI to get the DLL
           $msiUrl = "https://github.com/winfsp/winfsp/releases/download/$env:WINFSP_TAG/winfsp-$env:WINFSP_VERSION.msi"
           $msiPath = "$env:TEMP\winfsp.msi"
           Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
-          $extractDir = "C:\winfsp-extract"
-          Start-Process msiexec.exe -ArgumentList "/a `"$msiPath`" /qn TARGETDIR=`"$extractDir`"" -Wait
-          if (Test-Path "$extractDir\WinFsp\lib\winfsp-x64.lib") {
-            Write-Host "WinFsp import library extracted: OK"
-            "WINFSP_LIB_DIR=$extractDir/WinFsp/lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } else {
-            throw "WinFsp import library not found after extraction!"
-          }
+          Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart" -Wait
+          Write-Host "WinFsp MSI installed (driver + DLL)"
+
+      - name: Generate WinFsp import library from DLL
+        run: |
+          # The MSI installs winfsp-x64.dll to System32
+          dllPath="/c/Windows/System32/winfsp-x64.dll"
+          if [ ! -f "$dllPath" ]; then
+            echo "Error: winfsp-x64.dll not found at $dllPath"
+            exit 1
+          fi
+
+          # Create a directory for the generated import library
+          mkdir -p winfsp-lib
+          cd winfsp-lib
+
+          # Generate .def file from DLL using gendef
+          gendef "$dllPath"
+
+          # Generate import library from .def using dlltool
+          dlltool -d winfsp-x64.def -l winfsp-x64.lib -D winfsp-x64.dll
+
+          if [ -f "winfsp-x64.lib" ]; then
+            echo "Import library generated successfully"
+            ls -lh winfsp-x64.lib
+          else
+            echo "Error: Failed to generate winfsp-x64.lib"
+            exit 1
+          fi
 
       - name: Set WinFsp paths for CMake
         run: |
           echo "WINFSP_INC_DIR=$(pwd)/winfsp-sdk/inc/fuse" >> $GITHUB_ENV
+          echo "WINFSP_LIB_DIR=$(pwd)/winfsp-lib" >> $GITHUB_ENV
+
           if [ ! -f "$(pwd)/winfsp-sdk/inc/fuse/fuse.h" ]; then
             echo "Error: fuse.h not found in cloned WinFsp repo"
             exit 1
           fi
+
+          if [ ! -f "$(pwd)/winfsp-lib/winfsp-x64.lib" ]; then
+            echo "Error: winfsp-x64.lib not found"
+            exit 1
+          fi
+
           echo "WinFsp headers: $(pwd)/winfsp-sdk/inc/fuse"
-          echo "WinFsp library: $WINFSP_LIB_DIR"
+          echo "WinFsp library: $(pwd)/winfsp-lib"
 
       - name: Configure with CMake
         run: |
