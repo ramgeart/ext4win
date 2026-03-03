@@ -106,7 +106,6 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-binutils
             python3
             git
             patch
@@ -145,49 +144,26 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/winfsp/winfsp winfsp-sdk
 
-      - name: Install WinFsp (for DLL) and generate import library
-        shell: powershell
+      - name: Generate WinFsp import library from .def file
         run: |
-          # Download and install WinFsp MSI to get the DLL
-          $msiUrl = "https://github.com/winfsp/winfsp/releases/download/$env:WINFSP_TAG/winfsp-$env:WINFSP_VERSION.msi"
-          $msiPath = "$env:TEMP\winfsp.msi"
-          Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
-          Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /norestart" -Wait
-          Write-Host "WinFsp MSI installed (driver + DLL)"
-
-      - name: Generate WinFsp import library from DLL
-        run: |
-          # The MSI installs winfsp-x64.dll; check both possible locations
-          dllPath=""
-          if [ -f "/c/Windows/System32/winfsp-x64.dll" ]; then
-            dllPath="/c/Windows/System32/winfsp-x64.dll"
-          elif [ -f "/c/Program Files (x86)/WinFsp/bin/winfsp-x64.dll" ]; then
-            dllPath="/c/Program Files (x86)/WinFsp/bin/winfsp-x64.dll"
-          elif [ -f "/c/Program Files/WinFsp/bin/winfsp-x64.dll" ]; then
-            dllPath="/c/Program Files/WinFsp/bin/winfsp-x64.dll"
-          else
-            echo "Error: winfsp-x64.dll not found in expected locations:"
-            echo "  - C:\Windows\System32\winfsp-x64.dll"
-            echo "  - C:\Program Files (x86)\WinFsp\bin\winfsp-x64.dll"
-            echo "  - C:\Program Files\WinFsp\bin\winfsp-x64.dll"
+          # The WinFsp repo contains a .def file we can use directly
+          defFile="winfsp-sdk/src/dll/winfsp.def"
+          if [ ! -f "$defFile" ]; then
+            echo "Error: winfsp.def not found at $defFile"
             exit 1
           fi
 
-          echo "Found WinFsp DLL at: $dllPath"
+          echo "Using WinFsp .def file: $defFile"
 
           # Create a directory for the generated import library
           mkdir -p winfsp-lib
-          cd winfsp-lib
-
-          # Generate .def file from DLL using gendef
-          gendef "$dllPath"
 
           # Generate import library from .def using dlltool
-          dlltool -d winfsp-x64.def -l winfsp-x64.lib -D winfsp-x64.dll
+          dlltool -d "$defFile" -l winfsp-lib/winfsp-x64.lib -D winfsp-x64.dll
 
-          if [ -f "winfsp-x64.lib" ]; then
+          if [ -f "winfsp-lib/winfsp-x64.lib" ]; then
             echo "Import library generated successfully"
-            ls -lh winfsp-x64.lib
+            ls -lh winfsp-lib/winfsp-x64.lib
           else
             echo "Error: Failed to generate winfsp-x64.lib"
             exit 1
